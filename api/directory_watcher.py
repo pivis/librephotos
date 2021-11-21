@@ -7,6 +7,7 @@ from multiprocessing import Pool
 import magic
 import pytz
 import pyvips
+import torch
 from django import db
 from django.core.paginator import Paginator
 from django.db.models import Q
@@ -287,6 +288,11 @@ def initialize_scan_process(*args, **kwargs):
     way. (See https://stackoverflow.com/a/24724452)
 
     """
+    num_threads = args[0]
+    if num_threads is not None:
+        import torch
+        torch.set_num_threads(num_threads)
+
     from multiprocessing.util import Finalize
 
     from api.util import exiftool_instance
@@ -340,9 +346,11 @@ def scan_photos(user, full_scan, job_id):
         lrj.save()
         db.connections.close_all()
 
+        num_threads = max(1, torch.get_num_threads() // ownphotos.settings.HEAVYWEIGHT_PROCESS) if ownphotos.settings.HEAVYWEIGHT_PROCESS > 1 else None
         with Pool(
             processes=ownphotos.settings.HEAVYWEIGHT_PROCESS,
             initializer=initialize_scan_process,
+            initargs=(num_threads,)
         ) as pool:
             pool.starmap(photo_scanner, all)
 

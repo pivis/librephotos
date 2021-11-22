@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pytz
 import torch
+import multiprocessing
 from django_rq import job
 
 import api.util as util
@@ -11,6 +12,7 @@ from api.image_similarity import build_image_similarity_index
 from api.models.long_running_job import LongRunningJob
 from api.models.photo import Photo
 from api.semantic_search.semantic_search import semantic_search_instance
+from api.semantic_search.server import spawnable_server
 
 
 def create_batch_job(job_type, user):
@@ -41,6 +43,10 @@ def batch_calculate_clip_embedding(job_id, user):
     util.logger.info("Using threads: {}".format(torch.get_num_threads()))
 
     try:
+        mpctx = multiprocessing.get_context("spawn")
+        parent_conn, child_conn = mpctx.Pipe(duplex=True)
+        server = mpctx.Process(target=spawnable_server, args=(child_conn,))
+        server.start()
         done_count = 0
         while done_count < count:
             objs = list(Photo.objects.filter(clip_embeddings__isnull=True)[:BATCH_SIZE])
@@ -52,9 +58,11 @@ def batch_calculate_clip_embedding(job_id, user):
             if len(valid_objs) == 0:
                 break
 
-            imgs_emb, magnitudes = semantic_search_instance.calculate_clip_embeddings(
-                imgs
-            )
+            parent_conn.send(imgs)
+            imgs_emb, magnitudes = parent_conn.recv()
+            #imgs_emb, magnitudes = semantic_search_instance.calculate_clip_embeddings(
+                #imgs
+            #)
 
             for obj, img_emb, magnitude in zip(valid_objs, imgs_emb, magnitudes):
                 obj.clip_embeddings = img_emb.tolist()
@@ -65,6 +73,8 @@ def batch_calculate_clip_embedding(job_id, user):
             lrj.result = {"progress": {"current": done_count, "target": count}}
             lrj.save()
 
+        parent_conn.send(None)
+        server.join()
         semantic_search_instance.unload()
         build_image_similarity_index(user)
         lrj.finished_at = datetime.now().replace(tzinfo=pytz.utc)

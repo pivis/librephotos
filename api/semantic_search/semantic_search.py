@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 from sentence_transformers import SentenceTransformer
 
-import ownphotos
+import ownphotos.settings
 
 dir_clip_ViT_B_32_model = ownphotos.settings.CLIP_ROOT
 
@@ -58,3 +58,4 @@ class SemanticSearch:
 
 
 semantic_search_instance = SemanticSearch()
+

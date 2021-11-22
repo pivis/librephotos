@@ -84,7 +84,7 @@ else:
         return os.path.basename(filepath).startswith(".")
 
 
-def handle_new_image(user, image_path, job_id):
+def handle_new_image(user, image_path, job_id, num_threads=None):
     if is_valid_media(image_path):
         try:
             elapsed_times = {
@@ -117,7 +117,7 @@ def handle_new_image(user, image_path, job_id):
                 photo.geolocation_json = {}
                 photo.video = is_video(img_abs_path)
                 start = datetime.datetime.now()
-                photo._generate_thumbnail(True)
+                photo._generate_thumbnail(True, num_threads)
                 elapsed = (datetime.datetime.now() - start).total_seconds()
                 util.logger.info(
                     "job {}: generate thumbnails: {}, elapsed: {}".format(
@@ -208,11 +208,11 @@ def handle_new_image(user, image_path, job_id):
                 )
 
 
-def rescan_image(user, image_path, job_id):
+def rescan_image(user, image_path, job_id, num_threads=None):
     try:
         if is_valid_media(image_path):
             photo = Photo.objects.filter(Q(image_paths__contains=image_path)).get()
-            photo._generate_thumbnail(True)
+            photo._generate_thumbnail(True, num_threads)
             photo._calculate_aspect_ratio(False)
             photo._geolocate_mapbox(True)
             photo._extract_date_time_from_exif(True)
@@ -251,7 +251,7 @@ def _file_was_modified_after(filepath, time):
     return datetime.datetime.fromtimestamp(modified).replace(tzinfo=pytz.utc) > time
 
 
-def photo_scanner(user, last_scan, full_scan, path, job_id):
+def photo_scanner(user, last_scan, full_scan, path, job_id, num_threads):
     if Photo.objects.filter(image_paths__contains=path).exists():
         files_to_check = [path]
         files_to_check.extend(util.get_sidecar_files_in_priority_order(path))
@@ -265,9 +265,9 @@ def photo_scanner(user, last_scan, full_scan, path, job_id):
                 ]
             )
         ):
-            rescan_image(user, path, job_id)
+            rescan_image(user, path, job_id, num_threads)
     else:
-        handle_new_image(user, path, job_id)
+        handle_new_image(user, path, job_id, num_threads)
     with db.connection.cursor() as cursor:
         cursor.execute(
             """
@@ -289,10 +289,13 @@ def initialize_scan_process(*args, **kwargs):
 
     """
     num_threads = args[0]
-    import os
-    os.environ["OMP_NUM_THREADS"] = str(num_threads)
     from multiprocessing.util import Finalize
     from api.util import exiftool_instance
+
+    if num_threads is not None:
+        import torch
+        torch.set_num_threads(num_threads)
+        torch.set_num_interop_threads(num_threads)
 
     et = exiftool_instance.__enter__()
 
@@ -335,15 +338,15 @@ def scan_photos(user, full_scan, job_id):
             .order_by("-finished_at")
             .first()
         )
+        num_threads = max(1, torch.get_num_threads() // ownphotos.settings.HEAVYWEIGHT_PROCESS) if ownphotos.settings.HEAVYWEIGHT_PROCESS > 1 else None
         all = []
         for path in photo_list:
-            all.append((user, last_scan, full_scan, path, job_id))
+            all.append((user, last_scan, full_scan, path, job_id, num_threads))
 
         lrj.result = {"progress": {"current": 0, "target": files_found}}
         lrj.save()
         db.connections.close_all()
 
-        num_threads = max(1, torch.get_num_threads() // ownphotos.settings.HEAVYWEIGHT_PROCESS)
         with Pool(
             processes=ownphotos.settings.HEAVYWEIGHT_PROCESS,
             initializer=initialize_scan_process,

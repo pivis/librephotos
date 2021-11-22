@@ -91,7 +91,7 @@ def createThumbnail(inputPath, outputHeight, outputPath, hash, fileType):
         return completePath
 
 
-def createAnimatedThumbnail(inputPath, outputHeight, outputPath, hash, fileType):
+def createAnimatedThumbnail(inputPath, outputHeight, outputPath, hash, fileType, num_threads=None):
     output = os.path.join(
         ownphotos.settings.MEDIA_ROOT, outputPath, hash + fileType
     ).strip()
@@ -110,11 +110,12 @@ def createAnimatedThumbnail(inputPath, outputHeight, outputPath, hash, fileType)
             "-filter:v",
             ("scale=-2:" + str(outputHeight)),
             output,
-        ]
+        ],
+        env={"OMP_NUM_THREADS": str(num_threads)} if num_threads is not None else None
     )
 
 
-def createThumbnailForVideo(inputPath, outputPath, hash, fileType):
+def createThumbnailForVideo(inputPath, outputPath, hash, fileType, num_threads=None):
     subprocess.call(
         [
             "ffmpeg",
@@ -127,7 +128,8 @@ def createThumbnailForVideo(inputPath, outputPath, hash, fileType):
             os.path.join(
                 ownphotos.settings.MEDIA_ROOT, outputPath, hash + fileType
             ).strip(),
-        ]
+        ],
+        env={"OMP_NUM_THREADS": str(num_threads)} if num_threads is not None else None
     )
 
 

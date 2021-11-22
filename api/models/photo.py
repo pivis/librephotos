@@ -231,7 +231,7 @@ class Photo(models.Model):
                 "could not generate places365 captions for image %s" % image_path
             )
 
-    def _generate_thumbnail(self, commit=True):
+    def _generate_thumbnail(self, commit=True, num_threads=None):
         if not doesStaticThumbnailExists("thumbnails_big", self.image_hash):
             if not self.video:
                 createThumbnail(
@@ -247,6 +247,7 @@ class Photo(models.Model):
                     outputPath="thumbnails_big",
                     hash=self.image_hash,
                     fileType=".webp",
+                    num_threads=num_threads,
                 )
 
         if not self.video and not doesStaticThumbnailExists(
@@ -268,6 +269,7 @@ class Photo(models.Model):
                 outputPath="square_thumbnails",
                 hash=self.image_hash,
                 fileType=".mp4",
+                num_threads=num_threads,
             )
 
         if not self.video and not doesStaticThumbnailExists(
@@ -289,6 +291,7 @@ class Photo(models.Model):
                 outputPath="square_thumbnails_small",
                 hash=self.image_hash,
                 fileType=".mp4",
+                num_threads=num_threads,
             )
         filetype = ".webp"
         if self.video:
